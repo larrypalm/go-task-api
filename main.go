@@ -1,0 +1,135 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+
+	"github.com/google/uuid"
+)
+
+type Task struct {
+	ID    uuid.UUID `json:"id"`
+	Title string    `json:"title"`
+	Done  bool      `json:"done"`
+}
+
+// var tasks = []Task{}
+
+type CreateTaskRequest struct {
+	Title string `json:"title"`
+}
+
+type CreateTasksBody struct {
+	Task CreateTaskRequest `json:"task"`
+}
+
+func main() {
+	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			loadedTasks := preloadTasks()
+
+			listTasks(w, loadedTasks)
+		case "POST":
+			loadedTasks := preloadTasks()
+
+			var newTasks CreateTasksBody
+			decoderError := json.NewDecoder(r.Body).Decode(&newTasks)
+
+			if decoderError != nil {
+				http.Error(w, "Error", http.StatusBadRequest)
+
+				return
+			}
+
+			createTask(w, loadedTasks, newTasks)
+		case "DELETE":
+			deleteTask(w)
+		default:
+			http.Error(w, "Not found", http.StatusNotFound)
+		}
+
+	})
+
+	port := ":8080"
+
+	fmt.Printf("Server started on port %s\n", port)
+
+	http.ListenAndServe(port, nil)
+}
+
+func loadTasks() ([]Task, error) {
+	fmt.Println("Loading tasks...")
+
+	file, error := os.ReadFile("./tasks.json")
+
+	if error != nil {
+		fmt.Printf("Error: %v\nCreating...\n", error)
+
+		os.WriteFile("./tasks.json", []byte("[]"), 0666)
+	}
+
+	file, error = os.ReadFile("./tasks.json")
+
+	var tasks []Task
+	error = json.Unmarshal(file, &tasks)
+
+	if error != nil {
+		fmt.Printf("Could not json parse tasks.json. Reason: %v\n", error)
+
+		return nil, error
+	}
+
+	fmt.Println("Successfully loaded tasks")
+
+	return tasks, nil
+}
+
+// GET    /tasks          → list all tasks
+func listTasks(w http.ResponseWriter, tasks []Task) {
+	jsonData, error := json.Marshal(tasks)
+
+	if error != nil {
+		fmt.Printf("Error: %v", error)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(jsonData)
+}
+
+// POST   /tasks          → create a task
+func createTask(w http.ResponseWriter, tasks []Task, newTask CreateTasksBody) {
+	task := Task{
+		ID:    uuid.New(),
+		Title: newTask.Task.Title,
+		Done:  false,
+	}
+
+	tasks = append(tasks, task)
+	hejsan, _ := json.Marshal(tasks)
+	os.WriteFile("./tasks.json", hejsan, 0666)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// DELETE /tasks/{id}     → delete a task
+func deleteTask(w http.ResponseWriter) {
+
+}
+
+func preloadTasks() []Task {
+	loadedTasks, error := loadTasks()
+
+	if error != nil {
+		fmt.Println("Error loading tasks. ", error)
+
+		return []Task{}
+	}
+
+	return loadedTasks
+}
