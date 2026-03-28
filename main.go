@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -29,12 +31,9 @@ func main() {
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			loadedTasks := preloadTasks()
 
-			listTasks(w, loadedTasks)
+			listTasks(w)
 		case "POST":
-			loadedTasks := preloadTasks()
-
 			var newTasks CreateTasksBody
 			decoderError := json.NewDecoder(r.Body).Decode(&newTasks)
 
@@ -44,13 +43,19 @@ func main() {
 				return
 			}
 
-			createTask(w, loadedTasks, newTasks)
-		case "DELETE":
-			deleteTask(w)
+			createTask(w, newTasks)
 		default:
 			http.Error(w, "Not found", http.StatusNotFound)
 		}
+	})
 
+	http.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "DELETE":
+			taskId := strings.TrimPrefix(r.URL.Path, "/tasks/")
+
+			deleteTask(w, taskId)
+		}
 	})
 
 	port := ":8080"
@@ -88,8 +93,10 @@ func loadTasks() ([]Task, error) {
 }
 
 // GET    /tasks          → list all tasks
-func listTasks(w http.ResponseWriter, tasks []Task) {
-	jsonData, error := json.Marshal(tasks)
+func listTasks(w http.ResponseWriter) {
+	loadedTasks := preloadTasks()
+
+	jsonData, error := json.Marshal(loadedTasks)
 
 	if error != nil {
 		fmt.Printf("Error: %v", error)
@@ -103,23 +110,48 @@ func listTasks(w http.ResponseWriter, tasks []Task) {
 }
 
 // POST   /tasks          → create a task
-func createTask(w http.ResponseWriter, tasks []Task, newTask CreateTasksBody) {
+func createTask(w http.ResponseWriter, newTask CreateTasksBody) {
+	loadedTasks := preloadTasks()
+
 	task := Task{
 		ID:    uuid.New(),
 		Title: newTask.Task.Title,
 		Done:  false,
 	}
 
-	tasks = append(tasks, task)
-	hejsan, _ := json.Marshal(tasks)
-	os.WriteFile("./tasks.json", hejsan, 0666)
+	loadedTasks = append(loadedTasks, task)
+	jsonData, error := json.Marshal(loadedTasks)
+
+	if error != nil {
+		http.Error(w, "Error adding task. Reason: "+error.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	os.WriteFile("./tasks.json", jsonData, 0666)
 
 	w.WriteHeader(http.StatusOK)
 }
 
 // DELETE /tasks/{id}     → delete a task
-func deleteTask(w http.ResponseWriter) {
+func deleteTask(w http.ResponseWriter, taskId string) {
+	loadedTasks := preloadTasks()
 
+	taskIndex, _, error := lookupTaskByUuid(loadedTasks, taskId)
+
+	if error != nil {
+		http.Error(w, "No task found with uuid: "+taskId, http.StatusNotFound)
+
+		return
+	}
+
+	loadedTasks = append(loadedTasks[:taskIndex], loadedTasks[taskIndex+1:]...)
+
+	jsonData, _ := json.Marshal(loadedTasks)
+
+	os.WriteFile("./tasks.json", jsonData, 0666)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func preloadTasks() []Task {
@@ -132,4 +164,14 @@ func preloadTasks() []Task {
 	}
 
 	return loadedTasks
+}
+
+func lookupTaskByUuid(tasks []Task, uuid string) (int, Task, error) {
+	for index, element := range tasks {
+		if uuid == element.ID.String() {
+			return index, element, nil
+		}
+	}
+
+	return -1, Task{}, errors.New("Task not found")
 }
