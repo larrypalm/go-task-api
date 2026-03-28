@@ -146,9 +146,18 @@ func createTask(w http.ResponseWriter, newTask CreateTaskBody) {
 		return
 	}
 
+	jsonTask, error := json.Marshal(task)
+
+	if error != nil {
+		http.Error(w, "Error adding task. Reason: "+error.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
 	os.WriteFile("./tasks.json", jsonData, 0666)
 
 	w.WriteHeader(http.StatusOK)
+	w.Write(jsonTask)
 }
 
 // DELETE /tasks/{id}     → delete a task
