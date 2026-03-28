@@ -22,7 +22,8 @@ type CreateTaskRequest struct {
 }
 
 type UpdateTaskRequest struct {
-	Done bool `json:"done"`
+	Done  *bool   `json:"done"`
+	Title *string `json:"title"`
 }
 
 type UpdateTaskBody struct {
@@ -204,7 +205,13 @@ func updateTask(w http.ResponseWriter, taskId string, updateTaskBody UpdateTaskB
 		return
 	}
 
-	loadedTasks[taskIndex].Done = updateTaskBody.Task.Done
+	if updateTaskBody.Task.Done != nil {
+		loadedTasks[taskIndex].Done = *updateTaskBody.Task.Done
+	}
+
+	if updateTaskBody.Task.Title != nil {
+		loadedTasks[taskIndex].Title = *updateTaskBody.Task.Title
+	}
 
 	jsonData, error := json.Marshal(loadedTasks)
 
@@ -214,5 +221,17 @@ func updateTask(w http.ResponseWriter, taskId string, updateTaskBody UpdateTaskB
 		return
 	}
 
+	taskJson, error := json.Marshal(loadedTasks[taskIndex])
+
+	if error != nil {
+		http.Error(w, "Failed to update task: "+taskId, http.StatusInternalServerError)
+
+		return
+	}
+
 	os.WriteFile("./tasks.json", jsonData, 0666)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(taskJson)
 }
