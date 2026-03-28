@@ -17,13 +17,19 @@ type Task struct {
 	Done  bool      `json:"done"`
 }
 
-// var tasks = []Task{}
-
 type CreateTaskRequest struct {
 	Title string `json:"title"`
 }
 
-type CreateTasksBody struct {
+type UpdateTaskRequest struct {
+	Done bool `json:"done"`
+}
+
+type UpdateTaskBody struct {
+	Task UpdateTaskRequest `json:"task"`
+}
+
+type CreateTaskBody struct {
 	Task CreateTaskRequest `json:"task"`
 }
 
@@ -34,8 +40,8 @@ func main() {
 
 			listTasks(w)
 		case "POST":
-			var newTasks CreateTasksBody
-			decoderError := json.NewDecoder(r.Body).Decode(&newTasks)
+			var newTask CreateTaskBody
+			decoderError := json.NewDecoder(r.Body).Decode(&newTask)
 
 			if decoderError != nil {
 				http.Error(w, "Error", http.StatusBadRequest)
@@ -43,18 +49,29 @@ func main() {
 				return
 			}
 
-			createTask(w, newTasks)
+			createTask(w, newTask)
 		default:
 			http.Error(w, "Not found", http.StatusNotFound)
 		}
 	})
 
 	http.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		taskId := strings.TrimPrefix(r.URL.Path, "/tasks/")
+
 		switch r.Method {
 		case "DELETE":
-			taskId := strings.TrimPrefix(r.URL.Path, "/tasks/")
-
 			deleteTask(w, taskId)
+		case "PUT":
+			var updateTaskBody UpdateTaskBody
+			decoderError := json.NewDecoder(r.Body).Decode(&updateTaskBody)
+
+			if decoderError != nil {
+				http.Error(w, "Error "+decoderError.Error(), http.StatusBadRequest)
+
+				return
+			}
+
+			updateTask(w, taskId, updateTaskBody)
 		}
 	})
 
@@ -110,7 +127,7 @@ func listTasks(w http.ResponseWriter) {
 }
 
 // POST   /tasks          → create a task
-func createTask(w http.ResponseWriter, newTask CreateTasksBody) {
+func createTask(w http.ResponseWriter, newTask CreateTaskBody) {
 	loadedTasks := preloadTasks()
 
 	task := Task{
@@ -174,4 +191,28 @@ func lookupTaskByUuid(tasks []Task, uuid string) (int, Task, error) {
 	}
 
 	return -1, Task{}, errors.New("Task not found")
+}
+
+func updateTask(w http.ResponseWriter, taskId string, updateTaskBody UpdateTaskBody) {
+	loadedTasks := preloadTasks()
+
+	taskIndex, _, error := lookupTaskByUuid(loadedTasks, taskId)
+
+	if error != nil {
+		http.Error(w, "No task found with uuid: "+taskId, http.StatusNotFound)
+
+		return
+	}
+
+	loadedTasks[taskIndex].Done = updateTaskBody.Task.Done
+
+	jsonData, error := json.Marshal(loadedTasks)
+
+	if error != nil {
+		http.Error(w, "Failed to update task: "+taskId, http.StatusInternalServerError)
+
+		return
+	}
+
+	os.WriteFile("./tasks.json", jsonData, 0666)
 }
